@@ -6,7 +6,9 @@ var App = require('node-app'),
 		//Imap = require('node-imap-client'),
 		pathToRegexp = require('path-to-regexp'),
 		Imap = require('imap');
-		
+
+const url = require('url');		
+const { URLSearchParams } = require('url');
 
 //var Logger = require('node-express-logger'),
 var Authorization = require('node-express-authorization');
@@ -36,11 +38,13 @@ var AppImapClient = new Class({
 	 * Prefix criteria types with an "!" to negate.
 	 * */
 	 'search',
+	 'seq.search',
 		 
 	 /**
 		* fetch(< MessageSource >source, [< object >options]) - ImapFetch - Fetches message(s) in the currently open mailbox.
 		* */
 		'fetch',
+		'seq.fetch',
 
 
 	],
@@ -58,6 +62,9 @@ var AppImapClient = new Class({
 		 * https://github.com/mscdex/node-imap#connection-instance-methods
 		 * */
 		opts: {},
+		
+		path: '',
+		mailbox: 'INBOX',
 		
 		//db: '',
 		
@@ -195,7 +202,7 @@ var AppImapClient = new Class({
 		}.bind(this));
 		
 		this.request.once('ready', function() {
-			debug_internals('connection ready');
+			debug_internals('connection ready->state %s', this.request.state);
 			
 			this.fireEvent(this.ON_CONNECT, {host: this.options.host, user: this.options.opts.user} );
 			/**
@@ -298,6 +305,8 @@ var AppImapClient = new Class({
 				
 				path = (typeof(this.options.path) !== "undefined") ? this.options.path : '';
 				
+				debug_internals('instance[verb] path %o', path);
+				
 				options = options || {};
 				
 				
@@ -325,6 +334,10 @@ var AppImapClient = new Class({
 						if(options.uri != null && re.test(options.uri) == true){
 							uri_matched = true;
 							
+							debug_internals('routes[verb] uri matched %o', options);
+							debug_internals('routes[verb] uri matched->re.exec %o', re.exec(options.uri));
+							
+							
 							var callbacks = [];
 							
 							/**
@@ -350,20 +363,7 @@ var AppImapClient = new Class({
 							var response = function(err, resp){
 								
 								debug_internals('response verb %s', verb);
-								
-								////console.log('---req_func.cache.has(options.doc)---')	
-								////console.log(resp._id);
-								////console.log(this.request.database('dashboard').cache.has(resp._id));
-								
-								//console.log('--response callback---');
-								//console.log(arguments);
-								
-								//if(resp == false){
-									//debug_internals('response connection closed');
-									////this.request.disconnect();
-									////this.fireEvent(this.ON_CONNECT_ERROR, { error: resp });
-								//}
-								//else 
+							
 								if(err){
 									debug_internals('response err %o', err);
 									//////this.fireEvent(this.ON_CONNECT_ERROR, {options: merged, uri: options.uri, route: route.path, error: err });
@@ -410,91 +410,144 @@ var AppImapClient = new Class({
 									
 							}.bind(this);
 							
-							var args = [];
+							let uri = url.parse(options.uri);
+							//let uri_search = null;
+							let readonly = false;
+							let mailbox_params = {};
 							
-							if(options.uri != '')
-								args.push(options.uri);
+							let mailbox = ((uri.pathname != null) ? uri.pathname : this.options.mailbox).trim().replace(/\/$/, '');
+							
+							debug_internals('url->parse %o', uri);
+							debug_internals('url->path %o', uri.pathname);
+							
+							debug_internals('selected box %s', mailbox);
+							
+							if(uri.search){
+								debug_internals('url->search %o', uri.search);
 								
-							//if(options.id)
-								//args.push(options.id);
+								let re = new RegExp(/readonly/ig);
+								
+								new URLSearchParams(uri.search).forEach((value, name) => {
+									if(re.test(name)){
+										readonly = (value == 'true') ? true : false;
+									}
+									else{
+										mailbox_params[name] = value;
+									}
+								});
+								//uri_params = 
+								debug_internals('Mailbox readonly %o', readonly);
+								debug_internals('URLSearchParams (BOX) %o', mailbox_params);
+							}
 							
-							//if(options.rev)
-								//args.push(options.rev);
 							
-							//if(options.data)
-								//args.push(options.data);
+							
+							var req_func = this.request;
+							
+							let open_mailbox_exec = function () {//try to open mailbox & exec VERB on succsess
+								let args = [];
+								let cb = function(err, mailbox){
+									if (err){
+										response(err, null);
+									}
+									else{
+										debug_internals('Mailbox opened %o', mailbox);
+										
+										let capture_mails = function(f){
+											f.on('message', function(msg, seqno) {
+												console.log('Message #%d', seqno);
+												var prefix = '(#' + seqno + ') ';
+												msg.on('body', function(stream, info) {
+													var buffer = '';
+													stream.on('data', function(chunk) {
+														buffer += chunk.toString('utf8');
+													});
+													stream.once('end', function() {
+														//console.log(prefix + 'Parsed header: %s', inspect(Imap.parseHeader(buffer)));
+														debug_internals(prefix + 'Parsed header: %o', Imap.parseHeader(buffer));
+													});
+												});
+												msg.once('attributes', function(attrs) {
+													//console.log(prefix + 'Attributes: %s', inspect(attrs, false, 8));
+													debug_internals(prefix + 'Attributes: %o', attrs);
+												});
+												msg.once('end', function() {
+													//console.log(prefix + 'Finished');
+													debug_internals(prefix + 'Finished');
+												});
+											});
+											f.once('error', function(err) {
+												//console.log('Fetch error: ' + err);
+												debug_internals('Fetch error: %s', err);
+											});
+											f.once('end', function() {
+												//console.log('Done fetching all messages!');
+												debug_internals('Done fetching all messages!');
+												//req_func.end();
+											});
+										};
+										
+										let verb_args = [];
+										
+										if(options.opts)
+											verb_args.push(options.opts);
+										
+										let re = new RegExp(/fetch/ig);
+										if(!re.test(verb))	//functions that needs and event (like fetch.on('message', ...))
+											verb_args.push(response);
+										
+										if(verb_args.length == 0)
+											verb_args = null;
+										
+										if(verb_args.length == 1)
+											verb_args = verb_args[0];
+											
+										debug_internals('verb %s', verb);
+										debug_internals('arguments %o', verb_args);
+										
+										let f = null;
+										
+										if(verb.indexOf('seq.') > -1){//seq counterpart method to normal search, fetch...
+											
+											let method = verb.split('.', 2)[1];
+											f = req_func.seq[method].attempt(verb_args, req_func);
+											
+											if(verb == 'seq.fetch'){
+												capture_mails(f);
+											}
+											
+											debug_internals('sequence verb %s', method);
+										}
+										else{
+											f = req_func[verb].attempt(verb_args, req_func);
+											
+											if(verb == 'fetch'){
+												capture_mails(f);
+											}
+										}
+										
+										//if(verb == 'fetch' || verb == 'seq.fetch'){	//functions that needs and event (like fetch.on('message', ...))
+										//}//end if(verb == 'fetch')
+										
+									}
+								};
+								
+								args.push(mailbox);
+								args.push(readonly);
+								if(mailbox_params.length > 0)
+									args.push(mailbox_params);
 									
+								args.push(cb);
+								
+								req_func.openBox.attempt(args, req_func);
+								
+							}
 							
-							//var req_func = null;
-							//var db = keys[0];
-							//var cache = keys[1];
-							//var cache_result;
+							req_func.once('ready', open_mailbox_exec);
 							
-							//if(db){
-								//var name = re.exec(options.uri)[1];
-								//req_func = this.request['database'](name);
-								////console.log('---DB----');
-								////console.log(name);
-								//////console.log(req_func['info'](response));
-							//}
-							//else{
-								//////console.log(this.request);
-								//var req_func = new Imap(this.options.host, this.options.port);
-								var req_func = this.request;
-								
-							//}
+							if(req_func.state == 'authenticated')
+								open_mailbox_exec();
 							
-							
-							
-							//if(!cache || (!cache_result && cache.optional)){
-								//console.log('---NO CACHE----');
-								
-								args.push(response);
-								
-								//////console.log(req_func[verb](args[0]))
-								
-								
-							
-								if(args.length == 0)
-									args = null;
-								
-								if(args.length == 1)
-									args = args[0];
-								
-								debug_internals('verb %s', verb);
-								debug_internals('arguments %o', args);
-								//console.log(args);
-								////console.log(verb);
-								////console.log(conn);
-								
-								//req_func['connect'](function(client){
-									//console.log(client);
-									//console.log(typeOf(client));
-									//if(typeOf(client) != 'object' || client == false){
-										//debug_internals('connect error %o', client);
-										//this.fireEvent(this.ON_CONNECT_ERROR, {error: client });
-									//}
-									//else{
-										
-										//req_func[verb].attempt(response, req_func);
-										
-										req_func[verb].attempt(args, req_func);
-										//try{
-										
-										//debug_internals('%o', req_func[ver]);
-										
-											//req_func[verb](response);
-										//}
-										//catch(e){
-											//console.log(e);
-										//}
-									//}
-										
-								//}.bind(this));	
-								
-								
-								
-							//}
 							
 						}
 						

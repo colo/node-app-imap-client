@@ -454,8 +454,15 @@ var AppImapClient = new Class({
 										debug_internals('Mailbox opened %o', mailbox);
 										
 										let capture_mails = function(f){
+											let messages = [];
+											
 											f.on('message', function(msg, seqno) {
-												console.log('Message #%d', seqno);
+												//console.log('Message #%d', seqno);
+												debug_internals('Message %d', seqno);
+												debug_internals('Message %o', msg);
+												
+												let comple_message = {};
+												
 												var prefix = '(#' + seqno + ') ';
 												msg.on('body', function(stream, info) {
 													var buffer = '';
@@ -465,25 +472,33 @@ var AppImapClient = new Class({
 													stream.once('end', function() {
 														//console.log(prefix + 'Parsed header: %s', inspect(Imap.parseHeader(buffer)));
 														debug_internals(prefix + 'Parsed header: %o', Imap.parseHeader(buffer));
+														
+														comple_message.body = buffer;
 													});
 												});
 												msg.once('attributes', function(attrs) {
 													//console.log(prefix + 'Attributes: %s', inspect(attrs, false, 8));
 													debug_internals(prefix + 'Attributes: %o', attrs);
+													comple_message.attributes = attrs;
 												});
 												msg.once('end', function() {
 													//console.log(prefix + 'Finished');
 													debug_internals(prefix + 'Finished');
+													
+													messages.push(comple_message);
 												});
 											});
 											f.once('error', function(err) {
 												//console.log('Fetch error: ' + err);
 												debug_internals('Fetch error: %s', err);
+												
+												response(err, messages);
 											});
 											f.once('end', function() {
 												//console.log('Done fetching all messages!');
 												debug_internals('Done fetching all messages!');
-												//req_func.end();
+												
+												response(null, messages);
 											});
 										};
 										

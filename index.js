@@ -363,7 +363,7 @@ var AppImapClient = new Class({
 							var response = function(err, resp){
 								
 								debug_internals('response verb %s', verb);
-							
+								
 								if(err){
 									debug_internals('response err %o', err);
 									//////this.fireEvent(this.ON_CONNECT_ERROR, {options: merged, uri: options.uri, route: route.path, error: err });

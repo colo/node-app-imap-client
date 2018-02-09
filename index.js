@@ -190,9 +190,9 @@ var AppImapClient = new Class({
 		this.request.once('error', function(err) {
 			debug_internals('connection error %o', err);
 			
-			this.fireEvent(this.ON_CONNECT_ERROR, {uri: options.uri, route: route.path, error: err });
+			this.fireEvent(this.ON_CONNECT_ERROR, {host: this.options.host, user: this.options.opts.user, error: err });
 			
-		});
+		}.bind(this));
 
 		this.request.once('end', function() {
 			debug_internals('connection ended');

@@ -461,7 +461,7 @@ var AppImapClient = new Class({
 												debug_internals('Message %d', seqno);
 												debug_internals('Message %o', msg);
 												
-												let comple_message = {};
+												let complete_message = {};
 												
 												var prefix = '(#' + seqno + ') ';
 												msg.on('body', function(stream, info) {
@@ -473,19 +473,19 @@ var AppImapClient = new Class({
 														//console.log(prefix + 'Parsed header: %s', inspect(Imap.parseHeader(buffer)));
 														debug_internals(prefix + 'Parsed header: %o', Imap.parseHeader(buffer));
 														
-														comple_message.body = buffer;
+														complete_message.body = buffer;
 													});
 												});
 												msg.once('attributes', function(attrs) {
 													//console.log(prefix + 'Attributes: %s', inspect(attrs, false, 8));
 													debug_internals(prefix + 'Attributes: %o', attrs);
-													comple_message.attributes = attrs;
+													complete_message.attributes = attrs;
 												});
 												msg.once('end', function() {
 													//console.log(prefix + 'Finished');
 													debug_internals(prefix + 'Finished');
 													
-													messages.push(comple_message);
+													messages.push(complete_message);
 												});
 											});
 											f.once('error', function(err) {
